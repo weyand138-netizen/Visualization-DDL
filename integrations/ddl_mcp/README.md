@@ -8,6 +8,8 @@ python -m pip install ./integrations/ddl_mcp
 
 Set `DDL_BASE_URL`, `DDL_USERNAME`, `DDL_PASSWORD` in the MCP host's local environment configuration and launch `ddl-mcp` (or `python -m ddl_mcp.server`). Remote URLs require HTTPS; HTTP is accepted only for loopback. Redirects are refused. Do not commit your real host configuration.
 
+The account is supplied by each operator's private local configuration, not embedded in the connector. The model cannot choose another account through tool arguments. Change the configuration and restart the connector to switch accounts. `admin` in examples is the generic default login name, not a published personal credential.
+
 Tools: `ddl_list_events`, `ddl_create_event`, `ddl_update_event`, `ddl_delete_event`. Query results include `version`, `beijingNow`, `timezone`, pagination and event data. Edits require `expected_version`. `incomeCents` is integer RMB cents; `time=""` means all day. List dates are inclusive. A write retry uses the same request ID; an unresolved network failure requires querying before another write.
 
 Only events and necessary operational context reach the model. No chat history is persisted by the connector. Tool usage rules guide model behavior; they are not a guarantee of semantic accuracy.
