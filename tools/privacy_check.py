@@ -129,7 +129,9 @@ def main():
                     if marker and marker.encode() in raw: problems.append(('Git metadata', 'private deny marker'))
                 if kind == b'commit':
                     for email in re.findall(rb'^(?:author|committer) .* <([^>]+)>', raw, re.M):
-                        if not email.endswith(b'@users.noreply.github.com'):
+                        # GitHub-authored web commits use a platform noreply
+                        # committer; their author must still pass this check.
+                        if email != b'noreply@github.com' and not email.endswith(b'@users.noreply.github.com'):
                             problems.append(('Git metadata', 'non-noreply commit email'))
     expected = '**\n!Dockerfile\n!server.py\n!public/\n!public/**'
     if (ROOT / '.dockerignore').read_text().strip() != expected:
