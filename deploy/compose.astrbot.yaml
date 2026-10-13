@@ -1,0 +1,14 @@
+# Add to compose.ubuntu.yaml only for the optional AstrBot route.
+services:
+  ddl:
+    environment:
+      DDL_BOT_TOKEN: ${DDL_BOT_TOKEN:?Generate an internal bot token}
+      DDL_AI_URL: ${DDL_AI_URL:-http://astrbot:6198}
+    networks:
+      default:
+      bot:
+        aliases: [ddl-dashboard]
+networks:
+  bot:
+    external: true
+    name: ${ASTRBOT_NETWORK:-bot-network}

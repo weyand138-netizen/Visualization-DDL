@@ -1,0 +1,9 @@
+[Unit]
+Description=Back up DDL dashboard SQLite data
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/ddl-dashboard/deploy/backup_ubuntu.py
+UMask=0077

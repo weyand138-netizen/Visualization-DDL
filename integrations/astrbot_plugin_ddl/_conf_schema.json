@@ -1,0 +1,8 @@
+{
+  "dashboard_url": {"description": "工作台内部地址", "type": "string", "default": "http://ddl-dashboard:8080"},
+  "bot_token": {"description": "内部连接密钥", "type": "string", "secret": true, "default": ""},
+  "provider_id": {"description": "AstrBot 模型提供商 ID", "type": "string", "default": "", "hint": "选择已配置且支持识图的模型，不需要重复填写 API Key。"},
+  "allowed_qq": {"description": "允许管理日程的QQ号", "type": "list", "default": [], "hint": "留空时关闭QQ读写。仅接受私聊中的 /日程 或 /ddl 指令。"},
+  "qq_accounts": {"description": "QQ与独立工作台的绑定", "type": "list", "default": [], "hint": "每项填写 QQ号:登录用户名，例如 123456:admin。配置绑定后，未绑定或重复绑定的QQ号不能读写日程。"},
+  "bridge_port": {"description": "内部AI接口端口", "type": "int", "default": 6198}
+}

@@ -1,0 +1,7 @@
+{$DDL_DOMAIN} {
+    encode gzip
+    # The bot API is only reachable from the private Docker network.
+    @bot path /api/bot /api/bot/*
+    respond @bot 404
+    reverse_proxy ddl:8080
+}

@@ -1,0 +1,7 @@
+name: astrbot_plugin_ddl
+display_name: DDL 日程工作台
+desc: 使用现有模型整理文字和截图日程，与个人工作台同步。
+version: v1.1.0
+author: weyand138-netizen
+repo: "https://github.com/weyand138-netizen/Visualization-DDL"
+astrbot_version: ">=4.5.7"

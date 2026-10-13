@@ -1,0 +1,22 @@
+[Unit]
+Description=DDL personal dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=ddl
+Group=ddl
+WorkingDirectory=/opt/ddl-dashboard
+EnvironmentFile=-/etc/ddl-dashboard.env
+Environment=DDL_HOST=127.0.0.1 DDL_PORT=8080 DDL_DATA_DIR=/var/lib/ddl-dashboard
+ExecStart=/usr/bin/python3 /opt/ddl-dashboard/server.py
+Restart=on-failure
+StateDirectory=ddl-dashboard
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

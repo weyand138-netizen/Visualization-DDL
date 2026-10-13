@@ -1,0 +1,50 @@
+name: Source validation
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.11', '3.12']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install ./integrations/ddl_mcp
+      - run: python tools/run_checks.py
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Standalone empty-container smoke test
+        shell: bash
+        run: |
+          docker build -t ddl-smoke .
+          docker run -d --name ddl-smoke -e DDL_PASSWORD=fixture-ci-password -p 127.0.0.1:18080:8080 ddl-smoke
+          trap 'docker rm -f ddl-smoke' EXIT
+          python - <<'PY'
+          import base64, json, time, urllib.request
+          request = urllib.request.Request('http://127.0.0.1:18080/api/state', headers={
+              'Authorization': 'Basic ' + base64.b64encode(b'admin:fixture-ci-password').decode()})
+          for attempt in range(30):
+              try:
+                  with urllib.request.urlopen(request, timeout=2) as response:
+                      state = json.load(response)
+                  break
+              except OSError:
+                  time.sleep(1)
+          else:
+              raise SystemExit('Container did not become ready')
+          assert state['events'] == []
+          assert state['capabilities']['aiPlanning'] is False
+          PY
