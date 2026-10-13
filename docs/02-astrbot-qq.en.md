@@ -46,6 +46,8 @@ Replace the AstrBot host data path with your actual mounted data directory. Alte
 
 The installer backs up the previous plugin/config under your AstrBot data directory, keeps existing provider, platform and QQ settings, and aborts on a token mismatch. Backups are private operational data. On first install **QQ access is disabled**: enter allowed QQ IDs and explicit `QQ_ID:account` bindings in the plugin settings. Each QQ ID must have exactly one binding to an existing DDL login. The allowlist and binding must both pass. An unbound or duplicate mapping is rejected.
 
+Legacy behavior: when the entire binding list is empty, allowlisted QQ identities use `admin` for compatibility with older single-account configurations. For explicit account isolation, keep a nonempty binding list and map every authorized identity; the unbound/duplicate rejection above applies when bindings are configured.
+
 ## 4. Validate with your own test calendar
 
 1. Open `https://YOUR_HOSTNAME`, sign in and confirm the calendar is empty before adding a clearly named test event. Confirm another account cannot see it.
