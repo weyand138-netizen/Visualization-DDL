@@ -16,7 +16,7 @@
 
 ## 本地试用
 
-需要 Python 3.10+，首次启动为空数据库。
+需要 Python 3.10+
 
 ```bash
 git clone https://github.com/weyand138-netizen/Visualization-DDL.git
@@ -24,7 +24,7 @@ cd Visualization-DDL
 python server.py
 ```
 
-打开 `http://127.0.0.1:8080`。远程部署请按指南设置密码和 HTTPS。默认数据写入已忽略的 `data/`，源码发布包不含任何使用者的数据。
+打开 `http://127.0.0.1:8080`。远程部署请按指南设置密码和 HTTPS。默认数据写入已忽略的 `data/`。
 
 ## 功能与范围
 
