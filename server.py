@@ -18,6 +18,9 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
+import focus_timer
+import calendar_widget
+
 ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get("DDL_DATA_DIR", str(ROOT / "data")))
 DEFAULT_SETTINGS = {
@@ -99,6 +102,8 @@ def initialize_account(account):
             );
         """)
         db.execute("INSERT OR IGNORE INTO preferences VALUES (1, ?)", (json.dumps(DEFAULT_SETTINGS),))
+        focus_timer.initialize(db)
+        calendar_widget.initialize(db)
         settings = json.loads(db.execute("SELECT value FROM preferences WHERE id=1").fetchone()[0])
         if "dailyFocusGoal" not in settings:
             settings["dailyFocusGoal"] = 120
@@ -163,9 +168,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Referrer-Policy", "same-origin")
-        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+        widget = urlsplit(self.path).path in ("/focus-widget", "/calendar-widget")
+        if not widget:
+            self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer" if widget else "same-origin")
+        ancestors = "'self' file: http://localhost:* http://127.0.0.1:*" if widget else "'none'"
+        self.send_header("Content-Security-Policy", f"default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors {ancestors}; base-uri 'self'; form-action 'self'")
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(raw)
@@ -174,6 +182,27 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         accounts = configured_accounts()
         self.account_id = "admin"
+        if path in ("/focus-widget", "/focus-widget.js", "/focus-widget.css", "/calendar-widget", "/calendar-widget.js",
+                    "/calendar-widget.css", "/widget.css", "/widget.js", "/calendar-view.js", "/domain.js") and self.command in ("GET", "HEAD"):
+            return True
+        authorization = self.headers.get("Authorization", "")
+        if authorization.startswith("Bearer ") and path == "/api/calendar-widget" and self.command in ("GET", "HEAD"):
+            for account in ["admin", *accounts]:
+                with connect(account) as db:
+                    if calendar_widget.token_valid(db, authorization[7:]):
+                        self.account_id = account
+                        return self.account_matches()
+            self.send(401, {"error": "日历连接已失效，请从 AIRI 重新打开"})
+            return False
+        if authorization.startswith("Bearer ") and path == "/api/focus-timer":
+            for account in ["admin", *accounts]:
+                with connect(account) as db:
+                    if focus_timer.token_valid(db, authorization[7:]):
+                        self.account_id = account
+                        return self.account_matches()
+            self.discard_request_body()
+            self.send(401, {"error": "计时器连接已失效，请从 AIRI 重新打开"})
+            return False
         if path.startswith("/api/bot/"):
             token = os.environ.get("DDL_BOT_TOKEN", "")
             provided = self.headers.get("Authorization", "")
@@ -186,6 +215,10 @@ class Handler(BaseHTTPRequestHandler):
                 return True
             self.discard_request_body()
             self.send(401, {"error": "机器人凭据无效"})
+            return False
+        if authorization.startswith("Bearer "):
+            self.discard_request_body()
+            self.send(401, {"error": "此凭证不允许访问该接口"})
             return False
         password = os.environ.get("DDL_PASSWORD", "")
         if not password and not accounts:
@@ -246,6 +279,30 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         method = "GET" if self.command == "HEAD" else self.command
         try:
+            if path == "/api/calendar-widget" and method == "GET":
+                with connect(self.account_id) as db:
+                    value = calendar_widget.read(db, self.account_id, urlsplit(self.path).query)
+                self.send(200, value)
+                return
+            if path == "/api/calendar-widget-token" and method == "POST":
+                self.read_json()
+                with connect(self.account_id) as db:
+                    token = calendar_widget.issue_token(db)
+                self.send(200, {"account": self.account_id, "token": token})
+                return
+            if path == "/api/focus-timer" and method in ("GET", "POST"):
+                payload = self.read_json() if method == "POST" else None
+                with connect(self.account_id) as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    timer = focus_timer.control(db, payload) if payload is not None else focus_timer.read(db)
+                self.send(200, {"account": self.account_id, "timer": timer})
+                return
+            if path == "/api/focus-widget-token" and method == "POST":
+                self.read_json()
+                with connect(self.account_id) as db:
+                    token = focus_timer.issue_token(db)
+                self.send(200, {"token": token})
+                return
             if method == "POST" and path == "/api/ai/plan":
                 value = self.read_json()
                 bridge = os.environ.get("DDL_AI_URL", "").rstrip('/')
@@ -312,7 +369,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if method == "GET" and path == "/api/state":
                 with connect(self.account_id) as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    timer = focus_timer.read(db)
                     self.send(200, {"capabilities": {"aiPlanning": bool(os.environ.get("DDL_AI_URL") and os.environ.get("DDL_BOT_TOKEN"))},
+                                    "focusTimer": timer,
                                     "account": {"id": self.account_id, "displayName": configured_accounts().get(self.account_id, {}).get("displayName", "我的日常")},
                                     "events": [dict(row) for row in db.execute("SELECT * FROM events ORDER BY date, time, createdAt")],
                                     "settings": json.loads(db.execute("SELECT value FROM preferences WHERE id = 1").fetchone()[0]),
@@ -365,6 +425,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.send(200, {"ok": True})
                 return
             assets = {"/": ("index.html", "text/html"), "/index.html": ("index.html", "text/html"),
+                      "/focus-widget": ("focus-widget.html", "text/html"),
+                      "/focus-widget.js": ("focus-widget.js", "text/javascript"),
+                      "/focus-widget.css": ("focus-widget.css", "text/css"),
+                      "/calendar-widget": ("calendar-widget.html", "text/html"),
+                      "/calendar-widget.js": ("calendar-widget.js", "text/javascript"),
+                      "/calendar-widget.css": ("calendar-widget.css", "text/css"),
+                      "/calendar-view.js": ("calendar-view.js", "text/javascript"),
+                      "/widget.css": ("widget.css", "text/css"), "/widget.js": ("widget.js", "text/javascript"),
                       "/app.js": ("app.js", "text/javascript"), "/domain.js": ("domain.js", "text/javascript"),
                       "/focus-store.js": ("focus-store.js", "text/javascript"),
                       "/account-store.js": ("account-store.js", "text/javascript"),

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DDL</title>
+  <link rel="stylesheet" href="/widget.css">
+  <link rel="stylesheet" href="/calendar-widget.css">
+  <script type="module" src="/calendar-widget.js"></script>
+</head>
+<body>
+  <main class="widget-panel calendar-panel" aria-label="DDL 日历">
+    <header class="month-nav">
+      <strong id="month-label"></strong>
+      <div>
+        <button id="previous" aria-label="上个月" title="上个月">‹</button>
+        <button id="today" class="primary">今天</button>
+        <button id="next" aria-label="下个月" title="下个月">›</button>
+      </div>
+    </header>
+    <section id="month-view" aria-label="月历">
+      <div class="weekdays" aria-hidden="true"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+      <div id="calendar" class="calendar-grid"></div>
+    </section>
+    <section id="agenda" class="agenda" aria-label="选中日期的日程">
+      <div class="agenda-heading"><h1 id="day-label"></h1><span id="day-count"></span></div>
+      <div id="events" class="event-list"></div>
+    </section>
+    <section id="details" class="details" aria-label="日程详情" hidden>
+      <button id="back" class="back">‹ 返回日程</button>
+      <div id="detail-content"></div>
+    </section>
+    <div class="connection" aria-live="polite"><span id="message"></span><button id="retry" hidden>重试</button></div>
+    <span class="brand">AIRI</span>
+  </main>
+</body>
+</html>

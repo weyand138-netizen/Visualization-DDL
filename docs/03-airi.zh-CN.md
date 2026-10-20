@@ -78,6 +78,15 @@ Linux 路径示例为 `/opt/Visualization-DDL/.venv/bin/python`。同机测试�
 | `ddl_create_event` | event 中填写标题和日期，可选时间、分类、状态、incomeCents、到账状态、备注 |
 | `ddl_update_event` | event_id、expected_version、非空 changes，仅修改指定字段 |
 | `ddl_delete_event` | 明确对象的 event_id 与 expected_version |
+| `ddl_get_focus_timer` | 读取 DDL 当前专注计时与版本 |
+| `ddl_start_focus_timer` | duration_minutes（1–240，默认 25）、可选 title、auto_start（默认 true），启动并返回 DDL 计时组件 |
+| `ddl_open_focus_timer` | 打开当前 DDL 计时组件，保留正在进行的计时 |
+| `ddl_close_focus_timer` | 默认暂停并关闭窗口，保留剩余时间；明确要求后台继续时传 pause_timer=false |
+| `ddl_control_focus_timer` | pause／resume／reset 与当前 expected_version |
+
+专注组件在 DDL 的 `public/focus-widget.*` 中，状态由 `focus_timer.py` 保存。DDL 网页与 AIRI 小窗口操作同一账户的同一个计时器，完成后计入 DDL 专注记录。更新后的 AIRI 桌面端自动打开 start／open 返回的页面，只承担窗口容器和外观同步。其他 MCP 客户端需自行支持打开该页面。界面无励志标语和顶部“专注计时”标签，AIRI 字样在右下角。
+
+可说“开始 25 分钟专注”“暂停专注”“继续专注”“打开当前计时器”“关闭计时器”。关闭默认暂停、收起窗口并保留进度；重新打开时保持暂停，继续专注才恢复倒计时。说“只收起窗口，后台继续计时”可单独隐藏。不要使用 reset／删除组件代替关闭。控制前读取最新版本；请求结果不确定时先查询 `ddl_get_focus_timer`，不要盲目重置。小窗口使用仅限专注 API 的临时访问凭据，登录密码不传入页面。升级时刷新 DDL 网页以迁移未结束的浏览器计时，并重启 MCP 发现新增工具。
 
 日期为 `YYYY-MM-DD`，时间为 `HH:MM`，空时间表示全天。分类 work/personal/study，状态 planned/active/done，到账 pending/paid。金额用非负整数人民币分，1200 元对应 `120000`。
 
@@ -91,4 +100,12 @@ Linux 路径示例为 `/opt/Visualization-DDL/.venv/bin/python`。同机测试�
 
 连接器环境执行 `python -m unittest discover -s integrations/ddl_mcp/tests -v` 可运行临时服务器／数据库测试，无需 AstrBot。Ubuntu 备份执行 `sudo python3 deploy/backup_ubuntu.py`。升级前备份，`sudo git pull --ff-only` 后重新执行 `airi` 安装命令，以相同 pip 命令升级连接器并重启 MCP。保留数据卷与私有配置；恢复与可选定时器见[备份说明](02-astrbot-qq.zh-CN.md#5-备份升级与恢复)。
 
-首版不含主动提醒、周期日程、AIRI 内嵌日历或网页／手机版专用接入。SDK 测试通过不等于所有 AIRI 桌面版与模型组合均已验证，请参考发布的验证表。
+当前不含主动提醒、周期日程或网页／手机版专用接入。SDK 测试通过不等于所有 AIRI 桌面版与模型组合均已验证，请参考发布的验证表。
+
+## 6. 日历桌面窗口
+
+可说“打开日历”“打开日历看明天的安排”“关闭日历”。`ddl_open_calendar` 接受可选 date（YYYY-MM-DD），默认北京时间今天；`ddl_close_calendar` 仅关闭日历。月历按周一开始，下方显示选中日期的日程，点击查看详情。新增、修改、删除继续通过对话调用原有日程工具。
+
+日历组件与只读接口属于 DDL，AIRI 负责窗口和主题同步。日历与计时器可同时显示、分别移动和关闭；日历默认 420×600，最小 360×520，支持缩放。窗口可见时每 5 秒同步，隐藏时停止轮询，重开立即同步。连接已配置后，无需再登录网页版。
+
+日历使用独立的 12 小时只读凭证，不能写入日程、读取设置或操作计时器；密码不传入页面。凭证过期时让 AIRI 重新打开日历。升级后重启 DDL、MCP 和 AIRI，以载入新工具与独立窗口支持。

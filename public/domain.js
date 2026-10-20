@@ -29,7 +29,7 @@ export function incomeSummary(events, month) {
 }
 
 export function remainingSeconds(timer, now = Date.now()) {
-  return timer.running ? Math.max(0, Math.ceil((timer.deadline - now) / 1000)) : timer.remaining;
+  return timer.running ? Math.max(0, Math.ceil((timer.deadline - now) / 1000)) : Math.ceil(timer.remaining);
 }
 
 export function money(cents) {

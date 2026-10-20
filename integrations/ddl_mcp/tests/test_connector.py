@@ -65,7 +65,8 @@ class ConnectorTests(unittest.IsolatedAsyncioTestCase):
         async with Client(self.transport()) as client:
             tools = await client.list_tools()
             self.assertEqual({item.name for item in tools.tools}, {
-                'ddl_list_events', 'ddl_create_event', 'ddl_update_event', 'ddl_delete_event'})
+                'ddl_list_events', 'ddl_create_event', 'ddl_update_event', 'ddl_delete_event', 'ddl_open_calendar', 'ddl_close_calendar',
+                'ddl_get_focus_timer', 'ddl_start_focus_timer', 'ddl_open_focus_timer', 'ddl_close_focus_timer', 'ddl_control_focus_timer'})
             empty = self.output(await client.call_tool('ddl_list_events', {}))
             self.assertEqual(empty['events'], [])
             self.assertEqual(empty['timezone'], 'Asia/Shanghai')
@@ -91,6 +92,69 @@ class ConnectorTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(self.api.events(), [])
         with dashboard.connect('admin') as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM events').fetchone()[0], 0)
+
+    async def test_focus_tools_use_ddl_state_and_return_ddl_owned_widget(self):
+        async with Client(self.transport()) as client:
+            started = self.output(await client.call_tool('ddl_start_focus_timer', {'duration_minutes': 1, 'title': 'Read'}))
+            self.assertEqual(started['account'], 'alice')
+            self.assertTrue(started['timer']['running'])
+            self.assertTrue(started['widget']['url'].startswith(self.base + '/focus-widget#token='))
+            self.assertNotIn('fixture-alice-password', json.dumps(started))
+            current = self.output(await client.call_tool('ddl_get_focus_timer', {}))
+            self.assertEqual(current['timer']['id'], started['timer']['id'])
+            paused = self.output(await client.call_tool('ddl_control_focus_timer', {'action': 'pause', 'expected_version': current['timer']['version']}))
+            self.assertFalse(paused['timer']['running'])
+            opened = self.output(await client.call_tool('ddl_open_focus_timer', {}))
+            self.assertEqual(opened['timer']['id'], started['timer']['id'])
+            invalid = await client.call_tool('ddl_start_focus_timer', {'duration_minutes': 0})
+            self.assertTrue(invalid.is_error)
+            with dashboard.connect('alice') as db:
+                saved = json.loads(db.execute('SELECT value FROM focus_timer WHERE id=1').fetchone()[0])
+                saved.update(running=True, deadline=1)
+                db.execute('UPDATE focus_timer SET value=? WHERE id=1', (json.dumps(saved),))
+            completed = self.output(await client.call_tool('ddl_get_focus_timer', {}))
+            self.assertTrue(completed['timer']['completed'])
+            self.assertEqual(self.api.request('/api/state')['focusSessions'][0]['id'], started['timer']['id'])
+        with dashboard.connect('admin') as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM focus').fetchone()[0], 0)
+
+    async def test_calendar_tools_open_requested_date_without_writes_and_close_independently(self):
+        async with Client(self.transport()) as client:
+            opened = self.output(await client.call_tool('ddl_open_calendar', {'date': '2032-02-29'}))
+            self.assertEqual(opened['account'], 'alice')
+            self.assertTrue(opened['widget']['url'].startswith(self.base + '/calendar-widget?date=2032-02-29#token='))
+            self.assertNotIn('fixture-alice-password', json.dumps(opened))
+            invalid = await client.call_tool('ddl_open_calendar', {'date': '2032-02-30'})
+            self.assertTrue(invalid.is_error)
+            closed = self.output(await client.call_tool('ddl_close_calendar', {}))
+            self.assertEqual(closed['widget'], {'action': 'close', 'origin': self.base})
+            today = self.output(await client.call_tool('ddl_open_calendar', {}))
+            self.assertIn('/calendar-widget?date=', today['widget']['url'])
+        with dashboard.connect('alice') as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM bot_requests').fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM focus_timer').fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM events').fetchone()[0], 0)
+
+    async def test_close_timer_pauses_preserves_progress_and_can_be_reopened(self):
+        async with Client(self.transport()) as client:
+            started = self.output(await client.call_tool('ddl_start_focus_timer', {'duration_minutes': 25, 'title': 'Read'}))
+            closed = self.output(await client.call_tool('ddl_close_focus_timer', {}))
+            self.assertEqual(closed['widget'], {'action': 'close', 'origin': self.base})
+            self.assertFalse(closed['timer']['running'])
+            self.assertEqual(closed['timer']['id'], started['timer']['id'])
+            self.assertGreater(closed['timer']['remaining'], 0)
+            self.assertLess(closed['timer']['remaining'], started['timer']['total'])
+            self.assertFalse(closed['timer']['completed'])
+            repeated = self.output(await client.call_tool('ddl_close_focus_timer', {}))
+            self.assertEqual(repeated['timer'], closed['timer'])
+            opened = self.output(await client.call_tool('ddl_open_focus_timer', {}))
+            self.assertEqual(opened['timer'], closed['timer'])
+            resumed = self.output(await client.call_tool('ddl_control_focus_timer', {
+                'action': 'resume', 'expected_version': opened['timer']['version']}))
+            hidden = self.output(await client.call_tool('ddl_close_focus_timer', {'pause_timer': False}))
+            self.assertTrue(hidden['timer']['running'])
+            self.assertEqual(hidden['timer']['id'], resumed['timer']['id'])
+            self.assertEqual(self.api.request('/api/state')['focusSessions'], [])
 
     async def test_wrong_credentials_and_account_mismatch_are_rejected(self):
         with self.assertRaisesRegex(DDLConnectionError, 'login failed'):

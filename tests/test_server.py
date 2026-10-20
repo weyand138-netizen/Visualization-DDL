@@ -49,6 +49,8 @@ class ApiTests(unittest.TestCase):
         with server.connect() as db:
             db.execute("DELETE FROM events")
             db.execute("DELETE FROM focus")
+            db.execute("DELETE FROM focus_timer")
+            db.execute("DELETE FROM focus_widget_tokens")
             db.execute("DELETE FROM bot_requests")
             db.execute("UPDATE preferences SET value=?", (json.dumps(server.DEFAULT_SETTINGS),))
 
@@ -187,6 +189,104 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.request("/api/events/batch", "POST", payload, {"Origin": "https://other.example"})[0], 400)
         self.assertEqual(self.request("/api/events/batch", "POST", payload)[0], 200)
         self.assertEqual(self.request("/api/ai/plan", "POST", {"text": "明天下午3点开会"})[0], 503)
+
+    def test_shared_timer_preserves_paused_time_and_records_completion_once(self):
+        import focus_timer
+        with patch.object(focus_timer.time, 'time', return_value=1893456000):
+            status, value = self.request('/api/focus-timer', 'POST', {'action': 'start', 'durationMinutes': 1, 'title': 'Read'})
+        self.assertEqual(status, 200)
+        timer = value['timer']
+        with patch.object(focus_timer.time, 'time', return_value=1893456001.25):
+            paused = self.request('/api/focus-timer', 'POST', {'action': 'pause', 'expectedVersion': timer['version']})[1]['timer']
+        self.assertEqual(paused['remaining'], 58.75)
+        with patch.object(focus_timer.time, 'time', return_value=1893459600):
+            resumed = self.request('/api/focus-timer', 'POST', {'action': 'resume', 'expectedVersion': paused['version']})[1]['timer']
+        self.assertEqual(resumed['deadline'], 1893459658750)
+        with patch.object(focus_timer.time, 'time', return_value=1893459660):
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                states = list(pool.map(lambda _: self.request('/api/state')[1], range(4)))
+        for state in states:
+            self.assertTrue(state['focusTimer']['completed'])
+            self.assertEqual(state['focusSessions'], [{'id': timer['id'], 'seconds': 60, 'date': '2030-01-01'}])
+
+    def test_focus_commands_preserve_active_work_and_reject_stale_versions(self):
+        timer = self.request('/api/focus-timer', 'POST', {'action': 'start', 'durationMinutes': 25})[1]['timer']
+        self.assertEqual(self.request('/api/focus-timer', 'POST', {'action': 'start', 'durationMinutes': 50})[0], 400)
+        self.assertEqual(self.request('/api/focus-timer', 'POST', {'action': 'reset', 'expectedVersion': 0})[0], 400)
+        same = self.request('/api/focus-timer', 'POST', {'action': 'start', 'durationMinutes': 25})[1]['timer']
+        self.assertEqual(same['id'], timer['id'])
+        self.assertEqual(same['deadline'], timer['deadline'])
+        for duration in (0, 241, 1.5, True):
+            self.assertEqual(self.request('/api/focus-timer', 'POST', {'action': 'configure', 'durationMinutes': duration})[0], 400)
+
+    def test_widget_capability_is_account_bound_and_cannot_read_calendar(self):
+        accounts = json.dumps({'alice': {'passwordHash': server.password_hash('fixture-alice')}})
+        with patch.dict(os.environ, {'DDL_PASSWORD': 'fixture-admin', 'DDL_USERS_JSON': accounts}):
+            server.initialize_account('alice')
+            login = {'Authorization': 'Basic ' + base64.b64encode(b'alice:fixture-alice').decode(), 'X-DDL-Account': 'alice'}
+            status, value = self.request('/api/focus-widget-token', 'POST', {}, login)
+            self.assertEqual(status, 200)
+            restricted = {'Authorization': 'Bearer ' + value['token'], 'X-DDL-Account': 'alice'}
+            self.assertEqual(self.request('/api/focus-timer', 'POST', {'action': 'start'}, restricted)[0], 200)
+            self.assertEqual(self.request('/api/state', headers=restricted)[0], 401)
+            self.assertEqual(self.request('/api/focus-widget-token', 'POST', {}, restricted)[0], 401)
+            self.assertEqual(self.request('/api/focus-timer', headers={**restricted, 'X-DDL-Account': 'admin'})[0], 409)
+            self.assertEqual(self.request('/focus-widget')[0], 200)
+            with server.connect('alice') as db:
+                db.execute('UPDATE focus_widget_tokens SET expires=0')
+            self.assertEqual(self.request('/api/focus-timer', headers=restricted)[0], 401)
+            with server.connect('admin') as db:
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM focus_timer').fetchone()[0], 0)
+
+    def test_calendar_widget_is_read_only_account_bound_and_range_limited(self):
+        accounts = json.dumps({'calendar-user': {'passwordHash': server.password_hash('fixture-calendar')}})
+        with patch.dict(os.environ, {'DDL_PASSWORD': 'fixture-admin', 'DDL_USERS_JSON': accounts}):
+            server.initialize_account('calendar-user')
+            login = {'Authorization': 'Basic ' + base64.b64encode(b'calendar-user:fixture-calendar').decode(),
+                     'X-DDL-Account': 'calendar-user'}
+            self.assertEqual(self.request('/api/events', 'POST', self.event(date='2032-02-29'), login)[0], 201)
+            self.assertEqual(self.request('/api/events', 'POST', self.event(date='2032-04-01'), login)[0], 201)
+            status, grant = self.request('/api/calendar-widget-token', 'POST', {}, login)
+            self.assertEqual(status, 200)
+            restricted = {'Authorization': 'Bearer ' + grant['token']}
+            route = '/api/calendar-widget?date_from=2032-02-23&date_to=2032-04-04'
+            status, value = self.request(route, headers=restricted)
+            self.assertEqual(status, 200)
+            self.assertEqual(value['account'], 'calendar-user')
+            self.assertEqual(value['timezone'], 'Asia/Shanghai')
+            self.assertEqual(len(value['events']), 2)
+            self.assertEqual(set(value), {'account', 'timezone', 'beijingNow', 'events'})
+            self.assertEqual(self.request(route, headers={**restricted, 'X-DDL-Account': 'admin'})[0], 409)
+            for path in ('/api/state', '/api/focus-timer', '/api/calendar-widget-token', '/api/events'):
+                self.assertEqual(self.request(path, headers=restricted)[0], 401)
+            for method in ('POST', 'PUT', 'DELETE'):
+                self.assertEqual(self.request(route, method, {}, restricted)[0], 401)
+            for query in ('date_from=2032-02-30&date_to=2032-03-01', 'date_from=2032-03-01&date_to=2032-02-29',
+                          'date_from=2032-01-01&date_to=2032-04-01', 'date_from=2032-01-01',
+                          'date_from=2032-1-01&date_to=2032-01-02'):
+                self.assertEqual(self.request('/api/calendar-widget?' + query, headers=restricted)[0], 400)
+            with server.connect('calendar-user') as db:
+                db.execute('UPDATE calendar_widget_tokens SET expires=0')
+            self.assertEqual(self.request(route, headers=restricted)[0], 401)
+            self.assertEqual(self.request('/calendar-widget')[0], 200)
+
+    def test_calendar_widget_filters_dates_and_does_not_materialize_focus_state(self):
+        self.request('/api/events', 'POST', self.event(date='2030-12-31'))
+        self.request('/api/events', 'POST', self.event(date='2031-01-01'))
+        self.request('/api/events', 'POST', self.event(date='2031-01-02'))
+        status, value = self.request('/api/calendar-widget?date_from=2030-12-31&date_to=2031-01-01')
+        self.assertEqual(status, 200)
+        self.assertEqual([e['date'] for e in value['events']], ['2030-12-31', '2031-01-01'])
+        with server.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM focus_timer').fetchone()[0], 0)
+
+    def test_unfinished_browser_timer_is_adopted_only_before_shared_commands(self):
+        saved = {'id': 'browser-session', 'total': 1500, 'remaining': 1000, 'running': False, 'deadline': 0}
+        adopted = self.request('/api/focus-timer', 'POST', {'action': 'adopt', 'timer': saved})[1]['timer']
+        self.assertEqual(adopted['id'], 'browser-session')
+        self.assertEqual(adopted['remaining'], 1000)
+        next_timer = self.request('/api/focus-timer', 'POST', {'action': 'adopt', 'timer': {**saved, 'id': 'other'}})[1]['timer']
+        self.assertEqual(next_timer['id'], 'browser-session')
 
     def test_ai_update_cannot_overwrite_changes_made_after_preview(self):
         _, original = self.request("/api/events", "POST", self.event())

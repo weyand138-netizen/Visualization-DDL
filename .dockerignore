@@ -1,5 +1,7 @@
 **
 !Dockerfile
 !server.py
+!focus_timer.py
+!calendar_widget.py
 !public/
 !public/**

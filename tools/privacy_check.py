@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
-ROOT_FILES = {'server.py', 'package.json', 'Dockerfile', 'compose.yaml', '.env.example',
+ROOT_FILES = {'server.py', 'focus_timer.py', 'calendar_widget.py', 'package.json', 'Dockerfile', 'compose.yaml', '.env.example',
               '.gitignore', '.gitattributes', '.dockerignore', 'LICENSE', 'README.md', 'README.zh-CN.md',
               'PRIVACY.md', 'CONTRIBUTING.md'}
 DIRECTORIES = {'public', 'tests', 'deploy', 'integrations', 'docs', 'tools', '.github'}
@@ -133,7 +133,7 @@ def main():
                         # committer; their author must still pass this check.
                         if email != b'noreply@github.com' and not email.endswith(b'@users.noreply.github.com'):
                             problems.append(('Git metadata', 'non-noreply commit email'))
-    expected = '**\n!Dockerfile\n!server.py\n!public/\n!public/**'
+    expected = '**\n!Dockerfile\n!server.py\n!focus_timer.py\n!calendar_widget.py\n!public/\n!public/**'
     if (ROOT / '.dockerignore').read_text().strip() != expected:
         problems.append(('.dockerignore', 'Docker context allowlist changed; review required'))
     if args.archive:

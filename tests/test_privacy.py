@@ -17,7 +17,7 @@ class CommitEmailPrivacyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / '.dockerignore').write_text(
-                '**\n!Dockerfile\n!server.py\n!public/\n!public/**\n', encoding='utf-8')
+                '**\n!Dockerfile\n!server.py\n!focus_timer.py\n!calendar_widget.py\n!public/\n!public/**\n', encoding='utf-8')
             (root / 'README.md').write_text('Disposable privacy-test source.\n', encoding='utf-8')
             environment = os.environ.copy()
             environment.update({

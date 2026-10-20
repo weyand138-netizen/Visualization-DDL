@@ -66,8 +66,9 @@ class DDLClient:
     def request(self, path, payload=None):
         raw = json.dumps(payload, ensure_ascii=False).encode() if payload is not None else None
         authorization = base64.b64encode(f"{self.config.username}:{self.config.password}".encode()).decode()
-        # A write retry reuses exactly the same body and requestId. SQLite's
-        # bot_requests table returns the original result after a lost response.
+        # Calendar retries reuse the body/requestId and bot_requests result.
+        # Focus controls carry versions; an uncertain reply requires a fresh read.
+        query_target = "the current focus timer" if path.startswith("/api/focus") else "events"
         for attempt in range(2 if payload is not None else 1):
             req = Request(self.config.base_url.rstrip("/") + path, data=raw,
                           headers={"Authorization": "Basic " + authorization,
@@ -83,18 +84,18 @@ class DDLClient:
                 # Do not reflect arbitrary server bodies or credentials to the model.
                 messages = {401: "DDL login failed.", 403: "DDL access denied.",
                             409: "DDL account changed. Reconnect with the configured account.",
-                            400: "DDL rejected invalid or stale data. Query events again before editing."}
+                            400: f"DDL rejected invalid or stale data. Query {query_target} again before editing."}
                 if payload is not None and error.code >= 500:
-                    raise DDLConnectionError("Write result is uncertain. Query events before another write.") from None
+                    raise DDLConnectionError(f"Write result is uncertain. Query {query_target} before another write.") from None
                 raise DDLConnectionError(messages.get(error.code, f"DDL HTTP error {error.code}.")) from None
             except (URLError, TimeoutError, socket.timeout, ConnectionError, OSError, IncompleteRead):
                 if payload is not None and attempt == 0:
                     continue
-                message = ("Write result is uncertain. Query events before another write; do not blindly recreate it."
+                message = (f"Write result is uncertain. Query {query_target} before another write; do not blindly recreate it."
                            if payload is not None else "DDL cannot be reached. Check its address and connection.")
                 raise DDLConnectionError(message) from None
             except (ValueError, UnicodeError):
-                message = ("Write result is uncertain: invalid response. Query events before another write."
+                message = (f"Write result is uncertain: invalid response. Query {query_target} before another write."
                            if payload is not None else "DDL returned invalid JSON.")
                 raise DDLConnectionError(message) from None
 
@@ -104,14 +105,38 @@ class DDLClient:
                 or state["account"].get("id") != self.config.username
                 or not isinstance(state.get("events"), list)):
             raise DDLConnectionError("DDL returned an unexpected account or event list.")
-        # preferences/focus/capabilities are deliberately not exposed through MCP.
+        # Calendar queries do not expose preferences or focus data.
         return state["events"]
+
+    def focus_timer(self, command=None, open_widget=False):
+        """Read/control DDL's shared timer; optionally grant focus-only widget access."""
+        result = self.request("/api/focus-timer", command)
+        if not isinstance(result, dict) or result.get("account") != self.config.username or not isinstance(result.get("timer"), dict):
+            raise DDLConnectionError("DDL returned an unexpected focus timer account.")
+        if open_widget:
+            grant = self.request("/api/focus-widget-token", {})
+            token = grant.get("token") if isinstance(grant, dict) else None
+            if not isinstance(token, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{20,128}", token):
+                raise DDLConnectionError("DDL returned an invalid focus widget capability.")
+            result["widget"] = {"url": self.config.base_url.rstrip("/") + "/focus-widget#token=" + token}
+        return result
 
     def current(self, event_id, expected_version):
         event = next((item for item in self.events() if item.get("id") == event_id), None)
         if not event or snapshot_version(event) != expected_version:
             raise DDLConnectionError("Event is missing or has changed. Query again and use the new version.")
         return event
+
+    def open_calendar(self, selected_date):
+        """Issue read-only access to DDL's own calendar UI for one account."""
+        grant = self.request("/api/calendar-widget-token", {})
+        if not isinstance(grant, dict) or grant.get("account") != self.config.username:
+            raise DDLConnectionError("DDL returned an unexpected calendar account.")
+        token = grant.get("token")
+        if not isinstance(token, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{20,128}", token):
+            raise DDLConnectionError("DDL returned an invalid calendar widget capability.")
+        return {"account": self.config.username, "widget": {
+            "url": self.config.base_url.rstrip("/") + "/calendar-widget?date=" + selected_date + "#token=" + token}}
 
     def apply(self, action):
         request_id = "mcp-" + uuid.uuid4().hex

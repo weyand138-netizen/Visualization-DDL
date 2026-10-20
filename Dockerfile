@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 WORKDIR /app
-COPY server.py ./
+COPY server.py focus_timer.py calendar_widget.py ./
 COPY public ./public
 RUN useradd --uid 10001 --create-home ddl && mkdir /app/data && chown ddl:ddl /app/data
 USER ddl

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DDL</title>
+  <link rel="stylesheet" href="/widget.css">
+  <link rel="stylesheet" href="/focus-widget.css">
+  <script type="module" src="/focus-widget.js"></script>
+</head>
+<body>
+  <main class="widget-panel timer-panel" aria-label="DDL 计时器">
+    <h1 id="task" hidden></h1>
+    <div class="dial" id="dial">
+      <div class="dial-center">
+        <span id="time" role="timer" aria-live="off">--:--</span>
+        <span id="status" aria-live="polite">正在连接</span>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="toggle" class="primary" disabled>开始</button>
+      <button id="reset" class="reset" aria-label="重置计时器" title="重置计时器" disabled>↻</button>
+    </div>
+    <p id="error" role="alert" hidden></p>
+    <span class="brand">AIRI</span>
+  </main>
+</body>
+</html>

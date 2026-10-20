@@ -78,6 +78,15 @@ Recommended model instructions: “Use the DDL tools when I explicitly request c
 | `ddl_create_event` | `event` containing title/date and optional time, category, status, incomeCents, payment, notes. |
 | `ddl_update_event` | event_id, expected_version and nonempty changes; changes only specified fields. |
 | `ddl_delete_event` | event_id and expected_version for an explicitly identified event. |
+| `ddl_get_focus_timer` | Read DDL's shared focus timer and version. |
+| `ddl_start_focus_timer` | duration_minutes (1–240, default 25), optional title and auto_start (default true); start DDL focus and return its widget. |
+| `ddl_open_focus_timer` | Open the current DDL widget without replacing its session. |
+| `ddl_close_focus_timer` | Pause and close by default, preserving progress; pause_timer=false only for explicit background timing. |
+| `ddl_control_focus_timer` | pause/resume/reset with the current expected_version. |
+
+The component lives in DDL's `public/focus-widget.*`, with state owned by `focus_timer.py`. Dashboard and AIRI controls share the account's timer, and completion enters DDL statistics. The updated AIRI desktop host automatically displays the returned start/open widget and synchronizes appearance only. Other MCP hosts need their own URL display support. The UI has no slogans or focus header icon/text, with AIRI branding in the bottom-right corner.
+
+Try “Start a 25-minute focus session”, “Pause focus”, “Resume focus”, “Open the current timer”, or “Close the timer”. Closing pauses and hides the window, preserving progress. Reopening keeps it paused until resumed. Use “Hide the window and keep timing” for explicit background timing. Do not reset/remove the widget as a substitute for closing. Query `ddl_get_focus_timer` before versioned controls or after uncertain writes. The widget receives a short-lived focus-only capability, never the account password. Refresh the DDL dashboard after upgrade to adopt an unfinished browser timer, and restart MCP to discover the new tools.
 
 Dates are `YYYY-MM-DD`, time is `HH:MM` or empty for all day. Categories: work/personal/study; statuses: planned/active/done; payment: pending/paid. Money is nonnegative integer RMB cents, so RMB 1200 is `120000`.
 
@@ -91,4 +100,10 @@ No tools: verify the absolute Python path, installed package and MCP enabled sta
 
 For tests run `python -m unittest discover -s integrations/ddl_mcp/tests -v` using the connector environment. They create temporary HTTP servers/databases and do not need AstrBot. For backup run `sudo python3 deploy/backup_ubuntu.py`; for upgrades back up, `sudo git pull --ff-only`, rerun the `airi` installer, and reinstall the connector with the same pip command. Restart MCP afterward. Keep the data volume and private configuration. Recovery and optional timer instructions are in [backup guide](02-astrbot-qq.en.md#5-backup-upgrade-and-recovery).
 
-First-release boundaries: no proactive reminders, recurring events, embedded AIRI calendar or dedicated web/mobile integration. Successful SDK tests do not certify every AIRI desktop/model combination; check the published validation matrix.
+Current boundaries: no proactive reminders, recurring events or dedicated web/mobile integration. Successful SDK tests do not certify every AIRI desktop/model combination; check the published validation matrix.
+
+## 6. Calendar desktop window
+
+Ask AIRI to open the calendar, view a specific date visually, or close the calendar. `ddl_open_calendar` accepts an optional YYYY-MM-DD `date` (default today in Asia/Shanghai); `ddl_close_calendar` affects only its window. The DDL-owned read-only month view includes daily counts, a selected-day agenda and event details. Existing calendar tools handle changes through conversation.
+
+Calendar and timer use separate movable, resizable windows with synchronized AIRI appearance. Calendar defaults to 420×600, minimum 360×520. Visible windows refresh every five seconds, hidden windows stop polling, and reopening refreshes immediately. No additional web login is needed. The separate 12-hour calendar capability grants bounded calendar reads only, without credentials, settings access, focus access or event writes. Ask AIRI to reopen after expiration. Restart DDL, MCP and AIRI after upgrading.
